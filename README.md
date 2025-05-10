@@ -42,7 +42,7 @@ agent = Agent(
 agent.print_response("Write a report on NVDA", stream=True, show_full_reasoning=True, stream_intermediate_steps=True)
 ```
 
-Todo: Demo screen record
+Todo: add demo screen record
 
 ## Key features
 
