@@ -1,0 +1,13 @@
+pinaxai
+anthropic
+groq
+google-genai
+nest-asyncio
+ollama
+openai
+pathlib
+Pillow
+pip-tools
+python-dotenv
+rich
+streamlit

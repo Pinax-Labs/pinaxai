@@ -1,0 +1,9 @@
+pinaxai
+firecrawl-py
+openai
+packaging
+requests
+typing
+pydantic
+python-dotenv
+requests
