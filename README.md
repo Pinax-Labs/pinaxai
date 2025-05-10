@@ -42,7 +42,7 @@ agent = Agent(
 agent.print_response("Write a report on NVDA", stream=True, show_full_reasoning=True, stream_intermediate_steps=True)
 ```
 
-Todo: add demo screen record
+https://github.com/user-attachments/assets/c11209e5-0cb9-468c-9c27-57575052f627
 
 ## Key features
 
@@ -134,7 +134,7 @@ python reasoning_agent.py
 
 We can see the Agent is reasoning through the task, using the `ReasoningTools` and `YFinanceTools` to gather information. This is how the output looks like:
 
-todo: screen record /cookbook/examples/agents/reasoning_finance_agent
+https://github.com/user-attachments/assets/c11209e5-0cb9-468c-9c27-57575052f627
 
 > Now let's walk through the simple -> tools -> knowledge -> teams of agents flow.
 
@@ -163,6 +163,7 @@ export OPENAI_API_KEY=sk-xxxx
 
 python basic_agent.py
 ```
+https://github.com/user-attachments/assets/7ccc604c-abf5-4b23-95b0-8f6363783451
 
 [View this example in the cookbook](./cookbook/getting_started/01_basic_agent.py)
 
@@ -194,6 +195,8 @@ python agent_with_tools.py
 ```
 
 Now you should see a much more relevant result.
+
+https://github.com/user-attachments/assets/576a359d-87c4-43ca-b3ca-82a73cc71e41
 
 [View this example in the cookbook](./cookbook/getting_started/02_agent_with_tools.py)
 
@@ -319,7 +322,7 @@ We're giving away $20,000 in prizes for the most ambitious Agent projects
 - 🥇 1 winner: $2,000
 - 🏆 GRAND PRIZE: $5,000 🏆
 
-> Follow this [post](https://www.pinax.tech/blog/agent-hackathon-april-2025) for more details and updates
+> Follow this [post](https://www.pinax.tech/blog/agent-hackathon-may-2025) for more details and updates
 
 ### 🤝 Want to partner or judge?
 
