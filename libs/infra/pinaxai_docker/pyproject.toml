@@ -5,7 +5,7 @@ description = "Docker resources for Pinaxai"
 requires-python = ">=3.7"
 readme = "README.md"
 authors = [
-  {name = "Ashpreet Bedi", email = "ashpreet@pinax.tech"}
+  {name = "Greg Fitzgerald", email = "Greg.Fitzgerald@pinax.tech"}
 ]
 
 dependencies = [

@@ -2,7 +2,7 @@
 
 The Universal Agent Interface is a multi-modal interface for interacting with multiple agents using a single entrypoint. It is built on top of the LLM OS.
 
-The LLM OS was proposed by Andrej Karpathy 18 months ago [in this tweet](https://twitter.com/karpathy/status/1723140519554105733), [this tweet](https://twitter.com/karpathy/status/1707437820045062561) and [this video](https://youtu.be/zjkBMFhNj_g?t=2535). I built an early prototype of the LLM OS in 2024 (checkout this [video](https://x.com/ashpreetbedi/status/1790109321939829139)), which has now evolved into the Universal Agent Interface.
+The LLM OS was proposed by Andrej Karpathy 18 months ago [in this tweet](https://twitter.com/karpathy/status/1723140519554105733), [this tweet](https://twitter.com/karpathy/status/1707437820045062561) and [this video](https://youtu.be/zjkBMFhNj_g?t=2535).
 
 ## Notes:
 - This is a beta release and I am still porting over the internal agent to the public repo. I'm not even sure if people will like this so im not spending too much time on a polished UI.

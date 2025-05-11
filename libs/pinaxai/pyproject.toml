@@ -1,6 +1,6 @@
 [project]
 name = "pinaxai"
-version = "1.0.0"
+version = "1.0.1"
 description = "Pinaxai: a lightweight library for building Reasoning Agents"
 requires-python = ">=3.7,<4"
 readme = "README.md"
