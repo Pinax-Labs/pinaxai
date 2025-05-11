@@ -1,6 +1,6 @@
 from typing import Iterator, List
 
-from pinaxai.knowledge.document import Document
+from pinaxai.document import Document
 from pinaxai.knowledge.agent import AgentKnowledge
 
 
