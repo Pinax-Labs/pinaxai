@@ -1,8 +1,8 @@
 from typing import Any, Callable, Dict, List, Optional
 
-from pinaxaicument import Document
-from pinaxaiowledge.agent import AgentKnowledge
-from pinaxaiils.log import logger
+from pinaxai.knowledge.document import Document
+from pinaxai.knowledge.agent import AgentKnowledge
+from pinaxai.utils.log import logger
 
 try:
     from llama_index.core.retrievers import BaseRetriever

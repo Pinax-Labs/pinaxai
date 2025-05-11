@@ -1,7 +1,7 @@
 from typing import Iterator, List
 
-from pinaxaicument import Document
-from pinaxaiowledge.agent import AgentKnowledge
+from pinaxai.knowledge.document import Document
+from pinaxai.knowledge.agent import AgentKnowledge
 
 
 class DocumentKnowledgeBase(AgentKnowledge):

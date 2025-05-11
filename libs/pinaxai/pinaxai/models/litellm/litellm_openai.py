@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from os import getenv
 from typing import Optional
 
-from pinaxaidels.openai.like import OpenAILike
+from pinaxai.models.openai.like import OpenAILike
 
 
 @dataclass

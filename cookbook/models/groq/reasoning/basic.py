@@ -1,5 +1,5 @@
-from pinaxaient import Agent
-from pinaxaidels.groq import Groq
+from pinaxai.agents import Agent
+from pinaxai.models.groq import Groq
 
 agent = Agent(model=Groq(id="deepseek-r1-distill-llama-70b-specdec"), markdown=True)
 
