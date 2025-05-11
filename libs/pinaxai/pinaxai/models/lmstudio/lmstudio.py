@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-import httpx
+# import httpx
 
 from pinaxai.models.openai.like import OpenAILike
 

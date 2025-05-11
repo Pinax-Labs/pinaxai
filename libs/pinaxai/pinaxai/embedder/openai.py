@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from typing_extensions import Literal
 
 from pinaxai.embedder.base import Embedder
-from pinaxai.models.message import Message
+# from pinaxai.models.message import Message
 from pinaxai.utils.log import logger
 
 try:

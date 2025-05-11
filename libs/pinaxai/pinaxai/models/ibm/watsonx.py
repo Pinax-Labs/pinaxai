@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from os import getenv
 from typing import Any, AsyncGenerator, Dict, Iterator, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel  #Field
 
 from pinaxai.exceptions import ModelProviderError
 from pinaxai.models.base import Model
@@ -10,7 +10,7 @@ from pinaxai.models.message import Message
 from pinaxai.models.response import ModelResponse
 from pinaxai.utils.log import log_error, log_warning
 from pinaxai.utils.models.watsonx import format_images_for_message
-from ibm_watsonx_ai.foundation_models.utils.enums import ModelTypes
+# from ibm_watsonx_ai.foundation_models.utils.enums import ModelTypes
 
 try:
     from ibm_watsonx_ai import Credentials

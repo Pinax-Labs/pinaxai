@@ -9,8 +9,6 @@ from pinaxai.api.playground import PlaygroundEndpointCreate, create_playground_e
 from pinaxai.cli.console import console
 from pinaxai.cli.settings import pinaxai_cli_settings
 from pinaxai.utils.log import logger
-import socket
-from typing import Any, Dict, List, Optional
 
 # from pinaxai.playground.api.router import api_router # Temporarily commented out
 # from pinaxai.playground.app_data import AppData # Temporarily commented out
