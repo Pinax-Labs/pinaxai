@@ -1,9 +1,8 @@
 from textwrap import dedent
-from typing import Optional, Union
+from typing import Any, List, Optional
 
-from pinaxai.agent import Agent
 from pinaxai.reasoning.step import NextAction, ReasoningStep
-from pinaxai.team.team import Team
+from pinaxai.run import RunContext
 from pinaxai.tools import Toolkit
 from pinaxai.utils.log import log_debug, log_error
 
@@ -11,8 +10,9 @@ from pinaxai.utils.log import log_debug, log_error
 class ReasoningTools(Toolkit):
     def __init__(
         self,
-        think: bool = True,
-        analyze: bool = True,
+        enable_think: bool = True,
+        enable_analyze: bool = True,
+        all: bool = False,
         instructions: Optional[str] = None,
         add_instructions: bool = False,
         add_few_shot: bool = False,
@@ -20,12 +20,6 @@ class ReasoningTools(Toolkit):
         **kwargs,
     ):
         """A toolkit that provides step-by-step reasoning tools: Think and Analyze."""
-        super().__init__(
-            name="reasoning_tools",
-            instructions=instructions,
-            add_instructions=add_instructions,
-            **kwargs,
-        )
 
         # Add instructions for using this toolkit
         if instructions is None:
@@ -36,15 +30,31 @@ class ReasoningTools(Toolkit):
                 else:
                     self.instructions += "\n" + self.FEW_SHOT_EXAMPLES
             self.instructions += "\n</reasoning_instructions>\n"
+        else:
+            self.instructions = instructions
 
-        # Register each tool based on the init flags
-        if think:
-            self.register(self.think)
-        if analyze:
-            self.register(self.analyze)
+        tools: List[Any] = []
+        # Prefer new flags; fallback to legacy ones
+        if all or enable_think:
+            tools.append(self.think)
+        if all or enable_analyze:
+            tools.append(self.analyze)
+
+        super().__init__(
+            name="reasoning_tools",
+            instructions=self.instructions,
+            add_instructions=add_instructions,
+            tools=tools,
+            **kwargs,
+        )
 
     def think(
-        self, agent: Union[Agent, Team], title: str, thought: str, action: Optional[str] = None, confidence: float = 0.8
+        self,
+        run_context: RunContext,
+        title: str,
+        thought: str,
+        action: Optional[str] = None,
+        confidence: float = 0.8,
     ) -> str:
         """Use this tool as a scratchpad to reason about the question and work through it step-by-step.
         This tool will help you break down complex problems into logical steps and track the reasoning process.
@@ -71,19 +81,24 @@ class ReasoningTools(Toolkit):
                 confidence=confidence,
             )
 
+            current_run_id = run_context.run_id
+
             # Add this step to the Agent's session state
-            if agent.session_state is None:
-                agent.session_state = {}
-            if "reasoning_steps" not in agent.session_state:
-                agent.session_state["reasoning_steps"] = {}
-            if agent.run_id not in agent.session_state["reasoning_steps"]:
-                agent.session_state["reasoning_steps"][agent.run_id] = []
-            agent.session_state["reasoning_steps"][agent.run_id].append(reasoning_step.model_dump_json())
+            if run_context.session_state is None:
+                run_context.session_state = {}
+            if "reasoning_steps" not in run_context.session_state:
+                run_context.session_state["reasoning_steps"] = {}
+            if current_run_id not in run_context.session_state["reasoning_steps"]:
+                run_context.session_state["reasoning_steps"][current_run_id] = []
+            run_context.session_state["reasoning_steps"][current_run_id].append(reasoning_step.model_dump_json())
 
             # Return all previous reasoning_steps and the new reasoning_step
-            if "reasoning_steps" in agent.session_state and agent.run_id in agent.session_state["reasoning_steps"]:
+            if (
+                "reasoning_steps" in run_context.session_state
+                and current_run_id in run_context.session_state["reasoning_steps"]
+            ):
                 formatted_reasoning_steps = ""
-                for i, step in enumerate(agent.session_state["reasoning_steps"][agent.run_id], 1):
+                for i, step in enumerate(run_context.session_state["reasoning_steps"][current_run_id], 1):
                     step_parsed = ReasoningStep.model_validate_json(step)
                     step_str = dedent(f"""\
 Step {i}:
@@ -101,7 +116,7 @@ Confidence: {step_parsed.confidence}
 
     def analyze(
         self,
-        agent: Union[Agent, Team],
+        run_context: RunContext,
         title: str,
         result: str,
         analysis: str,
@@ -139,19 +154,23 @@ Confidence: {step_parsed.confidence}
                 confidence=confidence,
             )
 
+            current_run_id = run_context.run_id
             # Add this step to the Agent's session state
-            if agent.session_state is None:
-                agent.session_state = {}
-            if "reasoning_steps" not in agent.session_state:
-                agent.session_state["reasoning_steps"] = {}
-            if agent.run_id not in agent.session_state["reasoning_steps"]:
-                agent.session_state["reasoning_steps"][agent.run_id] = []
-            agent.session_state["reasoning_steps"][agent.run_id].append(reasoning_step.model_dump_json())
+            if run_context.session_state is None:
+                run_context.session_state = {}
+            if "reasoning_steps" not in run_context.session_state:
+                run_context.session_state["reasoning_steps"] = {}
+            if current_run_id not in run_context.session_state["reasoning_steps"]:
+                run_context.session_state["reasoning_steps"][current_run_id] = []
+            run_context.session_state["reasoning_steps"][current_run_id].append(reasoning_step.model_dump_json())
 
             # Return all previous reasoning_steps and the new reasoning_step
-            if "reasoning_steps" in agent.session_state and agent.run_id in agent.session_state["reasoning_steps"]:
+            if (
+                "reasoning_steps" in run_context.session_state
+                and current_run_id in run_context.session_state["reasoning_steps"]
+            ):
                 formatted_reasoning_steps = ""
-                for i, step in enumerate(agent.session_state["reasoning_steps"][agent.run_id], 1):
+                for i, step in enumerate(run_context.session_state["reasoning_steps"][current_run_id], 1):
                     step_parsed = ReasoningStep.model_validate_json(step)
                     step_str = dedent(f"""\
 Step {i}:

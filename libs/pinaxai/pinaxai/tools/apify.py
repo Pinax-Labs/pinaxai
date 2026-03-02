@@ -1,6 +1,6 @@
 import json
-import os
 import string
+from os import getenv
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import requests
@@ -21,65 +21,24 @@ class ApifyTools(Toolkit):
         Args:
             actors (Optional[Union[str, List[str]]]): Single Actor ID as string or list of Actor IDs to register as individual tools
             apify_api_token (Optional[str]): Apify API token (defaults to APIFY_API_TOKEN env variable)
-
-        Examples:
-            Configuration Instructions:
-            1. Install required dependencies:
-            pip install pinaxai apify-client
-
-            2. Set the APIFY_API_TOKEN environment variable:
-            Add a .env file with APIFY_API_TOKEN=your_apify_api_key
-
-            Import necessary components:
-
-            from pinaxai.agent import Agent
-            from pinaxai.tools.apify import ApifyTools
-
-            # Create an agent with ApifyTools
-            agent = Agent(
-                tools=[
-                    ApifyTools(actors=["apify/rag-web-browser"])
-                ],
-                markdown=True
-            )
-
-            # Ask the agent to process web content
-            agent.print_response("Summarize the content from https://docs.pinax.tech/introduction", markdown=True)
-
-            # Using multiple actors with the agent
-            agent = Agent(
-                tools=[
-                    ApifyTools(actors=[
-                        "apify/rag-web-browser",
-                        "compass/crawler-google-places"
-                    ])
-                ],
-                show_tool_calls=True
-            )
-            agent.print_response(
-                '''
-                I'm traveling to Tokyo next month.
-                1. Research the best time to visit and major attractions
-                2. Find one good rated sushi restaurant near Shinjuku
-                Compile a comprehensive travel guide with this information.
-                ''',
-                markdown=True
-            )
         """
-        super().__init__(name="ApifyTools")
-
         # Get API token from args or environment
-        self.apify_api_token = apify_api_token or os.getenv("APIFY_API_TOKEN")
+        self.apify_api_token = apify_api_token or getenv("APIFY_API_TOKEN")
         if not self.apify_api_token:
             raise ValueError("APIFY_API_TOKEN environment variable or apify_api_token parameter must be set")
 
         self.client = create_apify_client(self.apify_api_token)
 
-        # Register specific Actors if provided
+        tools: List[Any] = []
         if actors:
             actor_list = [actors] if isinstance(actors, str) else actors
             for actor_id in actor_list:
-                self.register_actor(actor_id)
+                tools.append(actor_id)
+
+        super().__init__(name="ApifyTools", tools=[], auto_register=False)
+
+        for actor_id in tools:
+            self.register_actor(actor_id)
 
     def register_actor(self, actor_id: str) -> None:
         """Register an Apify Actor as a function in the toolkit.
@@ -156,7 +115,7 @@ Returns:
             actor_function.__doc__ = docstring
 
             # Register the function with the toolkit
-            self.register(actor_function, sanitize_arguments=False)
+            self.register(actor_function)
             # Fix params schema
             self.functions[tool_name].parameters = props_to_json_schema(properties, required)
             log_info(f"Registered Apify Actor '{actor_id}' as function '{tool_name}'")
@@ -279,7 +238,7 @@ def create_apify_client(token: str) -> ApifyClient:
 
     client = ApifyClient(token)
     if http_client := getattr(client.http_client, "httpx_client", None):
-        http_client.headers["user-agent"] += "; Origin/pinaxai"
+        http_client.headers["user-agent"] += "; Origin/agno"
     return client
 
 
