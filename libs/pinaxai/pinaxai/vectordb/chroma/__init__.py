@@ -1,5 +1,6 @@
-from pinaxai.vectordb.chroma.chromadb import ChromaDb
+from pinaxai.vectordb.chroma.chromadb import ChromaDb, SearchType
 
 __all__ = [
     "ChromaDb",
+    "SearchType",
 ]
