@@ -2,14 +2,18 @@ import json
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from os import getenv
-from typing import Any, Dict, Iterator, List, Optional, Union
+from typing import Any, Dict, Iterator, List, Optional, Type, Union
 
 import httpx
+from pydantic import BaseModel
 
 from pinaxai.models.base import Model
 from pinaxai.models.message import Message
+from pinaxai.models.metrics import MessageMetrics
 from pinaxai.models.response import ModelResponse
-from pinaxai.utils.log import log_error, log_warning
+from pinaxai.run.agent import RunOutput
+from pinaxai.utils.http import get_default_async_client, get_default_sync_client
+from pinaxai.utils.log import log_debug, log_error, log_warning
 
 try:
     from cerebras.cloud.sdk import AsyncCerebras as AsyncCerebrasClient
@@ -18,11 +22,12 @@ try:
         ChatChunkResponse,
         ChatChunkResponseChoice,
         ChatChunkResponseChoiceDelta,
+        ChatChunkResponseUsage,
         ChatCompletionResponse,
         ChatCompletionResponseChoice,
         ChatCompletionResponseChoiceMessage,
+        ChatCompletionResponseUsage,
     )
-    from cerebras.cloud.sdk.types.completion import CompletionResponse
 except (ImportError, ModuleNotFoundError):
     raise ImportError("`cerebras-cloud-sdk` not installed. Please install using `pip install cerebras-cloud-sdk`")
 
@@ -41,12 +46,13 @@ class Cerebras(Model):
     supports_json_schema_outputs: bool = True
 
     # Request parameters
-    parallel_tool_calls: bool = False
+    parallel_tool_calls: Optional[bool] = None
     max_completion_tokens: Optional[int] = None
     repetition_penalty: Optional[float] = None
     temperature: Optional[float] = None
     top_p: Optional[float] = None
     top_k: Optional[int] = None
+    strict_output: bool = True  # When True, guarantees schema adherence for structured outputs. When False, attempts to follow schema as a guide but may occasionally deviate
     extra_headers: Optional[Any] = None
     extra_query: Optional[Any] = None
     extra_body: Optional[Any] = None
@@ -59,7 +65,7 @@ class Cerebras(Model):
     max_retries: Optional[int] = None
     default_headers: Optional[Any] = None
     default_query: Optional[Any] = None
-    http_client: Optional[httpx.Client] = None
+    http_client: Optional[Union[httpx.Client, httpx.AsyncClient]] = None
     client_params: Optional[Dict[str, Any]] = None
 
     # Cerebras clients
@@ -91,6 +97,35 @@ class Cerebras(Model):
             client_params.update(self.client_params)
         return client_params
 
+    def _ensure_additional_properties_false(self, schema: Dict[str, Any]) -> None:
+        """
+        Recursively ensure all object types have additionalProperties: false.
+        Cerebras API requires this for JSON schema validation.
+        """
+        if not isinstance(schema, dict):
+            return
+
+        # Set additionalProperties: false for object types
+        if schema.get("type") == "object":
+            schema["additionalProperties"] = False
+
+        # Recursively process nested schemas
+        if "properties" in schema and isinstance(schema["properties"], dict):
+            for prop_schema in schema["properties"].values():
+                self._ensure_additional_properties_false(prop_schema)
+
+        if "items" in schema:
+            self._ensure_additional_properties_false(schema["items"])
+
+        if "$defs" in schema and isinstance(schema["$defs"], dict):
+            for def_schema in schema["$defs"].values():
+                self._ensure_additional_properties_false(def_schema)
+
+        for key in ["allOf", "anyOf", "oneOf"]:
+            if key in schema and isinstance(schema[key], list):
+                for item in schema[key]:
+                    self._ensure_additional_properties_false(item)
+
     def get_client(self) -> CerebrasClient:
         """
         Returns a Cerebras client.
@@ -98,12 +133,15 @@ class Cerebras(Model):
         Returns:
             CerebrasClient: An instance of the Cerebras client.
         """
-        if self.client:
+        if self.client and not self.client.is_closed():
             return self.client
 
         client_params: Dict[str, Any] = self._get_client_params()
         if self.http_client is not None:
             client_params["http_client"] = self.http_client
+        else:
+            # Use global sync client when no custom http_client is provided
+            client_params["http_client"] = get_default_sync_client()
         self.client = CerebrasClient(**client_params)
         return self.client
 
@@ -114,22 +152,24 @@ class Cerebras(Model):
         Returns:
             AsyncCerebras: An instance of the asynchronous Cerebras client.
         """
-        if self.async_client:
+        if self.async_client and not self.async_client.is_closed():
             return self.async_client
 
         client_params: Dict[str, Any] = self._get_client_params()
-        if self.http_client:
+        if self.http_client and isinstance(self.http_client, httpx.AsyncClient):
             client_params["http_client"] = self.http_client
         else:
-            # Create a new async HTTP client with custom limits
-            client_params["http_client"] = httpx.AsyncClient(
-                limits=httpx.Limits(max_connections=1000, max_keepalive_connections=100)
-            )
+            # Use global async client when no custom http_client is provided
+            client_params["http_client"] = get_default_async_client()
         self.async_client = AsyncCerebrasClient(**client_params)
         return self.async_client
 
-    @property
-    def request_kwargs(self) -> Dict[str, Any]:
+    def get_request_params(
+        self,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        response_format: Optional[Union[Dict, Type[BaseModel]]] = None,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
         """
         Returns keyword arguments for API requests.
 
@@ -150,46 +190,62 @@ class Cerebras(Model):
         }
 
         # Filter out None values
-        request_params = {k: v for k, v in base_params.items() if v is not None}
+        request_params: Dict[str, Any] = {k: v for k, v in base_params.items() if v is not None}
 
         # Add tools
-        if self._tools is not None and len(self._tools) > 0:
+        if tools is not None and len(tools) > 0:
             request_params["tools"] = [
                 {
                     "type": "function",
                     "function": {
                         "name": tool["function"]["name"],
-                        "strict": True,  # Ensure strict adherence to expected outputs
                         "description": tool["function"]["description"],
                         "parameters": tool["function"]["parameters"],
                     },
                 }
-                for tool in self._tools
+                for tool in tools
             ]
             # Cerebras requires parallel_tool_calls=False for llama-4-scout-17b-16e-instruct
-            request_params["parallel_tool_calls"] = self.parallel_tool_calls
+            if self.id == "llama-4-scout-17b-16e-instruct":
+                request_params["parallel_tool_calls"] = False
+            elif self.parallel_tool_calls is not None:
+                request_params["parallel_tool_calls"] = self.parallel_tool_calls
 
         # Handle response format for structured outputs
-        if self.response_format is not None:
+        if response_format is not None:
             if (
-                isinstance(self.response_format, dict)
-                and self.response_format.get("type") == "json_schema"
-                and isinstance(self.response_format.get("json_schema"), dict)
+                isinstance(response_format, dict)
+                and response_format.get("type") == "json_schema"
+                and isinstance(response_format.get("json_schema"), dict)
             ):
-                # Ensure json_schema has strict=True as required by Cerebras API
-                schema = self.response_format["json_schema"]
-                if isinstance(schema.get("schema"), dict) and "strict" not in schema:
-                    schema["strict"] = True
+                # Ensure json_schema has strict parameter set
+                schema = response_format["json_schema"]
+                if isinstance(schema.get("schema"), dict):
+                    if "strict" not in schema:
+                        schema["strict"] = self.strict_output
+                    # Cerebras requires additionalProperties: false for all object types
+                    self._ensure_additional_properties_false(schema["schema"])
 
-                request_params["response_format"] = self.response_format
+                request_params["response_format"] = response_format
 
         # Add additional request params if provided
         if self.request_params:
             request_params.update(self.request_params)
 
+        if request_params:
+            log_debug(f"Calling {self.provider} with request parameters: {request_params}", log_level=2)
         return request_params
 
-    def invoke(self, messages: List[Message]) -> CompletionResponse:
+    def invoke(
+        self,
+        messages: List[Message],
+        assistant_message: Message,
+        response_format: Optional[Union[Dict, Type[BaseModel]]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
+        run_response: Optional[RunOutput] = None,
+        compress_tool_results: bool = False,
+    ) -> ModelResponse:
         """
         Send a chat completion request to the Cerebras API.
 
@@ -199,13 +255,28 @@ class Cerebras(Model):
         Returns:
             CompletionResponse: The chat completion response from the API.
         """
-        return self.get_client().chat.completions.create(
+        assistant_message.metrics.start_timer()
+        provider_response = self.get_client().chat.completions.create(
             model=self.id,
-            messages=[self._format_message(m) for m in messages],  # type: ignore
-            **self.request_kwargs,
+            messages=[self._format_message(m, compress_tool_results) for m in messages],  # type: ignore
+            **self.get_request_params(response_format=response_format, tools=tools),
         )
+        assistant_message.metrics.stop_timer()
 
-    async def ainvoke(self, messages: List[Message]) -> CompletionResponse:
+        model_response = self._parse_provider_response(provider_response, response_format=response_format)  # type: ignore
+
+        return model_response
+
+    async def ainvoke(
+        self,
+        messages: List[Message],
+        assistant_message: Message,
+        response_format: Optional[Union[Dict, Type[BaseModel]]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
+        run_response: Optional[RunOutput] = None,
+        compress_tool_results: bool = False,
+    ) -> ModelResponse:
         """
         Sends an asynchronous chat completion request to the Cerebras API.
 
@@ -215,13 +286,28 @@ class Cerebras(Model):
         Returns:
             ChatCompletion: The chat completion response from the API.
         """
-        return await self.get_async_client().chat.completions.create(
+        assistant_message.metrics.start_timer()
+        provider_response = await self.get_async_client().chat.completions.create(
             model=self.id,
-            messages=[self._format_message(m) for m in messages],  # type: ignore
-            **self.request_kwargs,
+            messages=[self._format_message(m, compress_tool_results) for m in messages],  # type: ignore
+            **self.get_request_params(response_format=response_format, tools=tools),
         )
+        assistant_message.metrics.stop_timer()
 
-    def invoke_stream(self, messages: List[Message]) -> Iterator[ChatChunkResponse]:
+        model_response = self._parse_provider_response(provider_response, response_format=response_format)  # type: ignore
+
+        return model_response
+
+    def invoke_stream(
+        self,
+        messages: List[Message],
+        assistant_message: Message,
+        response_format: Optional[Union[Dict, Type[BaseModel]]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
+        run_response: Optional[RunOutput] = None,
+        compress_tool_results: bool = False,
+    ) -> Iterator[ModelResponse]:
         """
         Send a streaming chat completion request to the Cerebras API.
 
@@ -231,14 +317,28 @@ class Cerebras(Model):
         Returns:
             Iterator[ChatChunkResponse]: An iterator of chat completion chunks.
         """
-        yield from self.get_client().chat.completions.create(
-            model=self.id,
-            messages=[self._format_message(m) for m in messages],  # type: ignore
-            stream=True,
-            **self.request_kwargs,
-        )  # type: ignore
+        assistant_message.metrics.start_timer()
 
-    async def ainvoke_stream(self, messages: List[Message]) -> AsyncIterator[ChatChunkResponse]:
+        for chunk in self.get_client().chat.completions.create(
+            model=self.id,
+            messages=[self._format_message(m, compress_tool_results) for m in messages],  # type: ignore
+            stream=True,
+            **self.get_request_params(response_format=response_format, tools=tools),
+        ):
+            yield self._parse_provider_response_delta(chunk)  # type: ignore
+
+        assistant_message.metrics.stop_timer()
+
+    async def ainvoke_stream(
+        self,
+        messages: List[Message],
+        assistant_message: Message,
+        response_format: Optional[Union[Dict, Type[BaseModel]]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
+        run_response: Optional[RunOutput] = None,
+        compress_tool_results: bool = False,
+    ) -> AsyncIterator[ModelResponse]:
         """
         Sends an asynchronous streaming chat completion request to the Cerebras API.
 
@@ -248,29 +348,41 @@ class Cerebras(Model):
         Returns:
             AsyncIterator[ChatChunkResponse]: An asynchronous iterator of chat completion chunks.
         """
+        assistant_message.metrics.start_timer()
+
         async_stream = await self.get_async_client().chat.completions.create(
             model=self.id,
-            messages=[self._format_message(m) for m in messages],  # type: ignore
+            messages=[self._format_message(m, compress_tool_results) for m in messages],  # type: ignore
             stream=True,
-            **self.request_kwargs,
+            **self.get_request_params(response_format=response_format, tools=tools),
         )
-        async for chunk in async_stream:  # type: ignore
-            yield chunk  # type: ignore
 
-    def _format_message(self, message: Message) -> Dict[str, Any]:
+        async for chunk in async_stream:  # type: ignore
+            yield self._parse_provider_response_delta(chunk)  # type: ignore
+
+        assistant_message.metrics.stop_timer()
+
+    def _format_message(self, message: Message, compress_tool_results: bool = False) -> Dict[str, Any]:
         """
         Format a message into the format expected by the Cerebras API.
 
         Args:
             message (Message): The message to format.
+            compress_tool_results: Whether to compress tool results.
 
         Returns:
             Dict[str, Any]: The formatted message.
         """
+        # Use compressed content for tool messages if compression is active
+        if message.role == "tool":
+            content = message.get_content(use_compressed_content=compress_tool_results)
+        else:
+            content = message.content if message.content is not None else ""
+
         # Basic message content
         message_dict: Dict[str, Any] = {
             "role": message.role,
-            "content": message.content if message.content is not None else "",
+            "content": content,
         }
 
         # Add name if present
@@ -299,7 +411,7 @@ class Cerebras(Model):
             message_dict = {
                 "role": "tool",
                 "tool_call_id": message.tool_call_id,
-                "content": message.content if message.content is not None else "",
+                "content": content,
             }
 
         # Ensure no None values in the message
@@ -307,7 +419,7 @@ class Cerebras(Model):
 
         return message_dict
 
-    def parse_provider_response(self, response: ChatCompletionResponse) -> ModelResponse:
+    def _parse_provider_response(self, response: ChatCompletionResponse, **kwargs) -> ModelResponse:
         """
         Parse the Cerebras response into a ModelResponse.
 
@@ -350,20 +462,18 @@ class Cerebras(Model):
 
         # Add usage metrics
         if response.usage:
-            model_response.response_usage = {
-                "input_tokens": response.usage.prompt_tokens,
-                "output_tokens": response.usage.completion_tokens,
-                "total_tokens": response.usage.total_tokens,
-            }
+            model_response.response_usage = self._get_metrics(response.usage)
 
         return model_response
 
-    def parse_provider_response_delta(self, response_delta: ChatChunkResponse) -> ModelResponse:
+    def _parse_provider_response_delta(
+        self, response: Union[ChatChunkResponse, ChatCompletionResponse]
+    ) -> ModelResponse:
         """
         Parse the streaming response from the Cerebras API into a ModelResponse.
 
         Args:
-            response_delta (ChatChunkResponse): The streaming response chunk.
+            response (ChatChunkResponse): The streaming response chunk.
 
         Returns:
             ModelResponse: The parsed response.
@@ -371,34 +481,116 @@ class Cerebras(Model):
         model_response = ModelResponse()
 
         # Get the first choice (assuming single response)
-        if response_delta.choices is not None:
-            choice: ChatChunkResponseChoice = response_delta.choices[0]
-            delta: ChatChunkResponseChoiceDelta = choice.delta
+        if response.choices is not None:
+            choice: Union[ChatChunkResponseChoice, ChatCompletionResponseChoice] = response.choices[0]
+            choice_delta: ChatChunkResponseChoiceDelta = choice.delta  # type: ignore
 
-            # Add content
-            if delta.content:
-                model_response.content = delta.content
+            if choice_delta:
+                # Add content
+                if choice_delta.content:
+                    model_response.content = choice_delta.content
 
-            # Add tool calls
-            if delta.tool_calls:
-                model_response.tool_calls = [
-                    {
-                        "id": tool_call.id,
-                        "type": tool_call.type,
-                        "function": {
-                            "name": tool_call.function.name,
-                            "arguments": tool_call.function.arguments,
-                        },
-                    }
-                    for tool_call in delta.tool_calls
-                ]
+                # Add tool calls - preserve index for proper aggregation in parse_tool_calls
+                if choice_delta.tool_calls:
+                    model_response.tool_calls = [
+                        {
+                            "index": tool_call.index if hasattr(tool_call, "index") else idx,
+                            "id": tool_call.id,
+                            "type": tool_call.type,
+                            "function": {
+                                "name": tool_call.function.name if tool_call.function else None,
+                                "arguments": tool_call.function.arguments if tool_call.function else None,
+                            },
+                        }
+                        for idx, tool_call in enumerate(choice_delta.tool_calls)
+                    ]
 
         # Add usage metrics
-        if response_delta.usage:
-            model_response.response_usage = {
-                "input_tokens": response_delta.usage.prompt_tokens,
-                "output_tokens": response_delta.usage.completion_tokens,
-                "total_tokens": response_delta.usage.total_tokens,
-            }
+        if response.usage:
+            model_response.response_usage = self._get_metrics(response.usage)
 
         return model_response
+
+    def parse_tool_calls(self, tool_calls_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Build complete tool calls from streamed tool call delta data.
+
+        Cerebras streams tool calls incrementally with partial data in each chunk.
+        This method aggregates those chunks by index to produce complete tool calls.
+
+        Args:
+            tool_calls_data: List of tool call deltas from streaming chunks.
+
+        Returns:
+            List[Dict[str, Any]]: List of fully-formed tool call dicts.
+        """
+        tool_calls: List[Dict[str, Any]] = []
+
+        for tool_call_delta in tool_calls_data:
+            # Get the index for this tool call (default to 0 if not present)
+            index = tool_call_delta.get("index", 0)
+
+            # Extend the list if needed
+            while len(tool_calls) <= index:
+                tool_calls.append(
+                    {
+                        "id": None,
+                        "type": None,
+                        "function": {
+                            "name": "",
+                            "arguments": "",
+                        },
+                    }
+                )
+
+            tool_call_entry = tool_calls[index]
+
+            # Update id if present
+            if tool_call_delta.get("id"):
+                tool_call_entry["id"] = tool_call_delta["id"]
+
+            # Update type if present
+            if tool_call_delta.get("type"):
+                tool_call_entry["type"] = tool_call_delta["type"]
+
+            # Update function name and arguments (concatenate for streaming)
+            if tool_call_delta.get("function"):
+                func_delta = tool_call_delta["function"]
+                if func_delta.get("name"):
+                    tool_call_entry["function"]["name"] += func_delta["name"]
+                if func_delta.get("arguments"):
+                    tool_call_entry["function"]["arguments"] += func_delta["arguments"]
+
+        # Filter out any incomplete tool calls (missing id or function name)
+        complete_tool_calls = [tc for tc in tool_calls if tc.get("id") and tc.get("function", {}).get("name")]
+
+        return complete_tool_calls
+
+    def _get_metrics(
+        self, response_usage: Union[ChatCompletionResponseUsage, ChatChunkResponseUsage]
+    ) -> MessageMetrics:
+        """
+        Parse the given Cerebras usage into an Agno MessageMetrics object.
+
+        Args:
+            response_usage: Usage data from Cerebras
+
+        Returns:
+            MessageMetrics: Parsed metrics data
+        """
+        metrics = MessageMetrics()
+
+        metrics.input_tokens = response_usage.prompt_tokens or 0
+        metrics.output_tokens = response_usage.completion_tokens or 0
+        metrics.total_tokens = metrics.input_tokens + metrics.output_tokens
+
+        # Capture Cerebras timing metrics if available
+        provider_metrics: Dict[str, Any] = {}
+        if hasattr(response_usage, "time_system") and response_usage.time_system is not None:
+            provider_metrics["time_system"] = response_usage.time_system
+        if hasattr(response_usage, "time_prompt") and response_usage.time_prompt is not None:
+            provider_metrics["time_prompt"] = response_usage.time_prompt
+        if provider_metrics:
+            metrics.provider_metrics = provider_metrics
+
+        return metrics

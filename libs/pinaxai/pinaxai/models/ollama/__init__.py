@@ -1,7 +1,7 @@
 from pinaxai.models.ollama.chat import Ollama
-from pinaxai.models.ollama.tools import OllamaTools
+from pinaxai.models.ollama.responses import OllamaResponses
 
 __all__ = [
     "Ollama",
-    "OllamaTools",
+    "OllamaResponses",
 ]

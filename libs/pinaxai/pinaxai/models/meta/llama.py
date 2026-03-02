@@ -1,25 +1,30 @@
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from os import getenv
-from typing import Any, Dict, Iterator, List, Optional, Union
+from typing import Any, Dict, Iterator, List, Optional, Type, Union
 
 import httpx
+from pydantic import BaseModel
 
 from pinaxai.exceptions import ModelProviderError
 from pinaxai.models.base import Model
 from pinaxai.models.message import Message
+from pinaxai.models.metrics import MessageMetrics
 from pinaxai.models.response import ModelResponse
-from pinaxai.utils.log import log_error, log_warning
+from pinaxai.run.agent import RunOutput
+from pinaxai.utils.http import get_default_async_client, get_default_sync_client
+from pinaxai.utils.log import log_debug, log_error, log_warning
 from pinaxai.utils.models.llama import format_message
 
 try:
     from llama_api_client import AsyncLlamaAPIClient, LlamaAPIClient
-    from llama_api_client.types.create_chat_completion_response import CreateChatCompletionResponse
+    from llama_api_client.types.create_chat_completion_response import CreateChatCompletionResponse, Metric
     from llama_api_client.types.create_chat_completion_response_stream_chunk import (
         CreateChatCompletionResponseStreamChunk,
         EventDeltaTextDelta,
         EventDeltaToolCallDelta,
         EventDeltaToolCallDeltaFunction,
+        EventMetric,
     )
     from llama_api_client.types.message_text_content_item import MessageTextContentItem
 except ImportError:
@@ -57,7 +62,7 @@ class Llama(Model):
     max_retries: Optional[int] = None
     default_headers: Optional[Any] = None
     default_query: Optional[Any] = None
-    http_client: Optional[httpx.Client] = None
+    http_client: Optional[Union[httpx.Client, httpx.AsyncClient]] = None
     client_params: Optional[Dict[str, Any]] = None
 
     # OpenAI clients
@@ -91,17 +96,25 @@ class Llama(Model):
 
     def get_client(self) -> LlamaAPIClient:
         """
-        Returns an Llama client.
+        Returns a Llama client.
 
         Returns:
             LlamaAPIClient: An instance of the Llama client.
         """
-        if self.client:
+        if self.client and not self.client.is_closed():
             return self.client
 
         client_params: Dict[str, Any] = self._get_client_params()
-        if self.http_client is not None:
-            client_params["http_client"] = self.http_client
+        if self.http_client:
+            if isinstance(self.http_client, httpx.Client):
+                client_params["http_client"] = self.http_client
+            else:
+                log_warning("http_client is not an instance of httpx.Client. Using default global httpx.Client.")
+                # Use global sync client when user http_client is invalid
+                client_params["http_client"] = get_default_sync_client()
+        else:
+            # Use global sync client when no custom http_client is provided
+            client_params["http_client"] = get_default_sync_client()
         self.client = LlamaAPIClient(**client_params)
         return self.client
 
@@ -112,26 +125,34 @@ class Llama(Model):
         Returns:
             AsyncLlamaAPIClient: An instance of the asynchronous Llama client.
         """
-        if self.async_client:
+        if self.async_client and not self.async_client.is_closed():
             return self.async_client
 
         client_params: Dict[str, Any] = self._get_client_params()
         if self.http_client:
-            client_params["http_client"] = self.http_client
+            if isinstance(self.http_client, httpx.AsyncClient):
+                client_params["http_client"] = self.http_client
+            else:
+                log_warning(
+                    "http_client is not an instance of httpx.AsyncClient. Using default global httpx.AsyncClient."
+                )
+                # Use global async client when user http_client is invalid
+                client_params["http_client"] = get_default_async_client()
         else:
-            # Create a new async HTTP client with custom limits
-            client_params["http_client"] = httpx.AsyncClient(
-                limits=httpx.Limits(max_connections=1000, max_keepalive_connections=100)
-            )
-        return AsyncLlamaAPIClient(**client_params)
+            # Use global async client when no custom http_client is provided
+            client_params["http_client"] = get_default_async_client()
 
-    @property
-    def request_kwargs(self) -> Dict[str, Any]:
+        # Create and cache the client
+        self.async_client = AsyncLlamaAPIClient(**client_params)
+        return self.async_client
+
+    def get_request_params(
+        self,
+        response_format: Optional[Union[Dict, Type[BaseModel]]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
         """
         Returns keyword arguments for API requests.
-
-        Returns:
-            Dict[str, Any]: A dictionary of keyword arguments for API requests.
         """
         # Define base request parameters
         base_params = {
@@ -150,23 +171,18 @@ class Llama(Model):
         request_params = {k: v for k, v in base_params.items() if v is not None}
 
         # Add tools
-        if self._tools is not None and len(self._tools) > 0:
-            request_params["tools"] = self._tools
+        if tools is not None and len(tools) > 0:
+            request_params["tools"] = tools
 
-            # Fix optional parameters where the "type" is [<type>, null]
-            for tool in request_params["tools"]:  # type: ignore
-                if "parameters" in tool["function"] and "properties" in tool["function"]["parameters"]:  # type: ignore
-                    for _, obj in tool["function"]["parameters"].get("properties", {}).items():  # type: ignore
-                        if isinstance(obj["type"], list):
-                            obj["type"] = obj["type"][0]
-
-        if self.response_format is not None:
-            request_params["response_format"] = self.response_format
+        if response_format is not None:
+            request_params["response_format"] = response_format
 
         # Add additional request params if provided
         if self.request_params:
             request_params.update(self.request_params)
 
+        if request_params:
+            log_debug(f"Calling {self.provider} with request parameters: {request_params}", log_level=2)
         return request_params
 
     def to_dict(self) -> Dict[str, Any]:
@@ -190,92 +206,134 @@ class Llama(Model):
                 "request_params": self.request_params,
             }
         )
-        if self._tools is not None:
-            model_dict["tools"] = self._tools
         cleaned_dict = {k: v for k, v in model_dict.items() if v is not None}
         return cleaned_dict
 
-    def invoke(self, messages: List[Message]) -> CreateChatCompletionResponse:
+    def invoke(
+        self,
+        messages: List[Message],
+        assistant_message: Message,
+        response_format: Optional[Union[Dict, Type[BaseModel]]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
+        run_response: Optional[RunOutput] = None,
+        compress_tool_results: bool = False,
+    ) -> ModelResponse:
         """
         Send a chat completion request to the Llama API.
-
-        Args:
-            messages (List[Message]): A list of messages to send to the model.
-
-        Returns:
-            CreateChatCompletionResponse: The chat completion response from the API.
         """
-        return self.get_client().chat.completions.create(
+        assistant_message.metrics.start_timer()
+
+        provider_response = self.get_client().chat.completions.create(
             model=self.id,
-            messages=[format_message(m) for m in messages],  # type: ignore
-            **self.request_kwargs,
+            messages=[
+                format_message(m, tool_calls=bool(tools), compress_tool_results=compress_tool_results)  # type: ignore
+                for m in messages
+            ],
+            **self.get_request_params(tools=tools, response_format=response_format),
         )
 
-    async def ainvoke(self, messages: List[Message]) -> CreateChatCompletionResponse:
+        assistant_message.metrics.stop_timer()
+
+        model_response = self._parse_provider_response(provider_response, response_format=response_format)
+        return model_response
+
+    async def ainvoke(
+        self,
+        messages: List[Message],
+        assistant_message: Message,
+        response_format: Optional[Union[Dict, Type[BaseModel]]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
+        run_response: Optional[RunOutput] = None,
+        compress_tool_results: bool = False,
+    ) -> ModelResponse:
         """
         Sends an asynchronous chat completion request to the Llama API.
-
-        Args:
-            messages (List[Message]): A list of messages to send to the model.
-
-        Returns:
-            CreateChatCompletionResponse: The chat completion response from the API.
         """
+        assistant_message.metrics.start_timer()
 
-        return await self.get_async_client().chat.completions.create(
+        provider_response = await self.get_async_client().chat.completions.create(
             model=self.id,
-            messages=[format_message(m) for m in messages],  # type: ignore
-            **self.request_kwargs,
+            messages=[
+                format_message(m, tool_calls=bool(tools), compress_tool_results=compress_tool_results)  # type: ignore
+                for m in messages
+            ],
+            **self.get_request_params(tools=tools, response_format=response_format),
         )
 
-    def invoke_stream(self, messages: List[Message]) -> Iterator[CreateChatCompletionResponseStreamChunk]:
+        assistant_message.metrics.stop_timer()
+
+        model_response = self._parse_provider_response(provider_response, response_format=response_format)
+        return model_response
+
+    def invoke_stream(
+        self,
+        messages: List[Message],
+        assistant_message: Message,
+        response_format: Optional[Union[Dict, Type[BaseModel]]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
+        run_response: Optional[RunOutput] = None,
+        compress_tool_results: bool = False,
+    ) -> Iterator[ModelResponse]:
         """
         Send a streaming chat completion request to the Llama API.
-
-        Args:
-            messages (List[Message]): A list of messages to send to the model.
-
-        Returns:
-            Iterator[CreateChatCompletionResponseStreamChunk]: An iterator of chat completion chunks.
         """
-
         try:
-            yield from self.get_client().chat.completions.create(
+            assistant_message.metrics.start_timer()
+
+            for chunk in self.get_client().chat.completions.create(
                 model=self.id,
-                messages=[format_message(m) for m in messages],  # type: ignore
+                messages=[
+                    format_message(m, tool_calls=bool(tools), compress_tool_results=compress_tool_results)  # type: ignore
+                    for m in messages
+                ],
                 stream=True,
-                **self.request_kwargs,
-            )  # type: ignore
+                **self.get_request_params(tools=tools, response_format=response_format),
+            ):
+                yield self._parse_provider_response_delta(chunk)  # type: ignore
+
+            assistant_message.metrics.stop_timer()
+
         except Exception as e:
             log_error(f"Error from Llama API: {e}")
             raise ModelProviderError(message=str(e), model_name=self.name, model_id=self.id) from e
 
-    async def ainvoke_stream(self, messages: List[Message]) -> AsyncIterator[CreateChatCompletionResponseStreamChunk]:
+    async def ainvoke_stream(
+        self,
+        messages: List[Message],
+        assistant_message: Message,
+        response_format: Optional[Union[Dict, Type[BaseModel]]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: Optional[Union[str, Dict[str, Any]]] = None,
+        run_response: Optional[RunOutput] = None,
+        compress_tool_results: bool = False,
+    ) -> AsyncIterator[ModelResponse]:
         """
         Sends an asynchronous streaming chat completion request to the Llama API.
-
-        Args:
-            messages (List[Message]): A list of messages to send to the model.
-
-        Returns:
-            AsyncIterator[CreateChatCompletionResponseStreamChunk]: An asynchronous iterator of chat completion chunks.
         """
+        assistant_message.metrics.start_timer()
 
         try:
-            async_stream = await self.get_async_client().chat.completions.create(
+            async for chunk in await self.get_async_client().chat.completions.create(
                 model=self.id,
-                messages=[format_message(m) for m in messages],  # type: ignore
+                messages=[
+                    format_message(m, tool_calls=bool(tools), compress_tool_results=compress_tool_results)  # type: ignore
+                    for m in messages
+                ],
                 stream=True,
-                **self.request_kwargs,
-            )
-            async for chunk in async_stream:  # type: ignore
-                yield chunk  # type: ignore
+                **self.get_request_params(tools=tools, response_format=response_format),
+            ):
+                yield self._parse_provider_response_delta(chunk)  # type: ignore
+
+            assistant_message.metrics.stop_timer()
+
         except Exception as e:
             log_error(f"Error from Llama API: {e}")
             raise ModelProviderError(message=str(e), model_name=self.name, model_id=self.id) from e
 
-    @staticmethod
-    def parse_tool_calls(tool_calls_data: List[EventDeltaToolCallDeltaFunction]) -> List[Dict[str, Any]]:
+    def parse_tool_calls(self, tool_calls_data: List[EventDeltaToolCallDeltaFunction]) -> List[Dict[str, Any]]:
         """
         Parse the tool calls from the Llama API.
 
@@ -327,7 +385,7 @@ class Llama(Model):
 
         return tool_calls
 
-    def parse_provider_response(self, response: CreateChatCompletionResponse) -> ModelResponse:
+    def _parse_provider_response(self, response: CreateChatCompletionResponse, **kwargs) -> ModelResponse:
         """
         Parse the Llama response into a ModelResponse.
 
@@ -377,25 +435,13 @@ class Llama(Model):
 
         # Add metrics from the metrics list
         if hasattr(response, "metrics") and response.metrics is not None:
-            usage_data = {}
-            metric_map = {
-                "num_prompt_tokens": "input_tokens",
-                "num_completion_tokens": "output_tokens",
-                "num_total_tokens": "total_tokens",
-            }
-
-            for metric in response.metrics:
-                key = metric_map.get(metric.metric)
-                if key:
-                    value = int(metric.value)
-                    usage_data[key] = value
-
-                if usage_data:
-                    model_response.response_usage = usage_data
+            model_response.response_usage = self._get_metrics(response.metrics)
 
         return model_response
 
-    def parse_provider_response_delta(self, response_delta: CreateChatCompletionResponseStreamChunk) -> ModelResponse:
+    def _parse_provider_response_delta(
+        self, response: CreateChatCompletionResponseStreamChunk, **kwargs
+    ) -> ModelResponse:
         """
         Parse the Llama streaming response into a ModelResponse.
 
@@ -407,25 +453,12 @@ class Llama(Model):
         """
         model_response = ModelResponse()
 
-        if response_delta is not None:
-            delta = response_delta.event
+        if response is not None:
+            delta = response.event
 
             # Capture metrics event
             if delta.event_type == "metrics" and delta.metrics is not None:
-                usage_data = {}
-                metric_map = {
-                    "num_prompt_tokens": "input_tokens",
-                    "num_completion_tokens": "output_tokens",
-                    "num_total_tokens": "total_tokens",
-                }
-
-                for metric in delta.metrics:
-                    key = metric_map.get(metric.metric)
-                    if key:
-                        usage_data[key] = int(metric.value)
-
-                if usage_data:
-                    model_response.response_usage = usage_data
+                model_response.response_usage = self._get_metrics(delta.metrics)
 
             if isinstance(delta.delta, EventDeltaTextDelta):
                 model_response.content = delta.delta.text
@@ -435,3 +468,26 @@ class Llama(Model):
                 model_response.tool_calls = delta.delta  # type: ignore
 
         return model_response
+
+    def _get_metrics(self, response_usage: Union[List[Metric], List[EventMetric]]) -> MessageMetrics:
+        """
+        Parse the given Llama usage into an Agno MessageMetrics object.
+
+        Args:
+            response_usage: Usage data from Llama
+
+        Returns:
+            MessageMetrics: Parsed metrics data
+        """
+        metrics = MessageMetrics()
+
+        for metric in response_usage:
+            metrics_field = metric.metric
+            if metrics_field == "num_prompt_tokens":
+                metrics.input_tokens = int(metric.value)
+            elif metrics_field == "num_completion_tokens":
+                metrics.output_tokens = int(metric.value)
+
+        metrics.total_tokens = metrics.input_tokens + metrics.output_tokens
+
+        return metrics
