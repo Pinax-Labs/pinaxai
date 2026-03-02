@@ -10,20 +10,23 @@ if TYPE_CHECKING:
     from pinaxai.metrics import RunMetrics
 
 
-def is_ollama_reasoning_model(reasoning_model: Model) -> bool:
-    return reasoning_model.__class__.__name__ == "Ollama" and (
-        "qwq" in reasoning_model.id
-        or "deepseek-r1" in reasoning_model.id
-        or "qwen2.5-coder" in reasoning_model.id
-        or "openthinker" in reasoning_model.id
-    )
+def is_vertexai_reasoning_model(reasoning_model: Model) -> bool:
+    """Check if the model is a VertexAI model with thinking support."""
+    # Check if provider is VertexAI
+    is_vertexai_provider = hasattr(reasoning_model, "provider") and reasoning_model.provider == "VertexAI"
+
+    # Check if thinking parameter is set
+    has_thinking = hasattr(reasoning_model, "thinking") and reasoning_model.thinking is not None
+
+    return is_vertexai_provider and has_thinking
 
 
-def get_ollama_reasoning(
+def get_vertexai_reasoning(
     reasoning_agent: "Agent",  # type: ignore[name-defined]  # noqa: F821
     messages: List[Message],
     run_metrics: Optional["RunMetrics"] = None,
 ) -> Optional[Message]:
+    """Get reasoning from a VertexAI Claude model."""
     try:
         reasoning_agent_response = reasoning_agent.run(input=messages)
     except Exception as e:
@@ -37,27 +40,30 @@ def get_ollama_reasoning(
         accumulate_eval_metrics(reasoning_agent_response.metrics, run_metrics, prefix="reasoning")
 
     reasoning_content: str = ""
-    # We use the normal content as no reasoning content is returned
-    if reasoning_agent_response.content is not None:
-        # Extract content between <think> tags if present
-        content = reasoning_agent_response.content
-        if "<think>" in content and "</think>" in content:
-            start_idx = content.find("<think>") + len("<think>")
-            end_idx = content.find("</think>")
-            reasoning_content = content[start_idx:end_idx].strip()
-        else:
-            reasoning_content = content
+    redacted_reasoning_content: Optional[str] = None
+
+    if reasoning_agent_response.messages is not None:
+        for msg in reasoning_agent_response.messages:
+            if msg.reasoning_content is not None:
+                reasoning_content = msg.reasoning_content
+            if hasattr(msg, "redacted_reasoning_content") and msg.redacted_reasoning_content is not None:
+                redacted_reasoning_content = msg.redacted_reasoning_content
+                break
 
     return Message(
-        role="assistant", content=f"<thinking>\n{reasoning_content}\n</thinking>", reasoning_content=reasoning_content
+        role="assistant",
+        content=f"<thinking>\n{reasoning_content}\n</thinking>",
+        reasoning_content=reasoning_content,
+        redacted_reasoning_content=redacted_reasoning_content,
     )
 
 
-async def aget_ollama_reasoning(
+async def aget_vertexai_reasoning(
     reasoning_agent: "Agent",  # type: ignore[name-defined]  # noqa: F821
     messages: List[Message],
     run_metrics: Optional["RunMetrics"] = None,
 ) -> Optional[Message]:
+    """Get reasoning from a VertexAI Claude model asynchronously."""
     try:
         reasoning_agent_response = await reasoning_agent.arun(input=messages)
     except Exception as e:
@@ -71,29 +77,30 @@ async def aget_ollama_reasoning(
         accumulate_eval_metrics(reasoning_agent_response.metrics, run_metrics, prefix="reasoning")
 
     reasoning_content: str = ""
-    if reasoning_agent_response.content is not None:
-        # Extract content between <think> tags if present
-        content = reasoning_agent_response.content
-        if "<think>" in content and "</think>" in content:
-            start_idx = content.find("<think>") + len("<think>")
-            end_idx = content.find("</think>")
-            reasoning_content = content[start_idx:end_idx].strip()
-        else:
-            reasoning_content = content
+    redacted_reasoning_content: Optional[str] = None
+
+    if reasoning_agent_response.messages is not None:
+        for msg in reasoning_agent_response.messages:
+            if msg.reasoning_content is not None:
+                reasoning_content = msg.reasoning_content
+            if hasattr(msg, "redacted_reasoning_content") and msg.redacted_reasoning_content is not None:
+                redacted_reasoning_content = msg.redacted_reasoning_content
+                break
 
     return Message(
-        role="assistant", content=f"<thinking>\n{reasoning_content}\n</thinking>", reasoning_content=reasoning_content
+        role="assistant",
+        content=f"<thinking>\n{reasoning_content}\n</thinking>",
+        reasoning_content=reasoning_content,
+        redacted_reasoning_content=redacted_reasoning_content,
     )
 
 
-def get_ollama_reasoning_stream(
+def get_vertexai_reasoning_stream(
     reasoning_agent: "Agent",  # type: ignore  # noqa: F821
     messages: List[Message],
 ) -> Iterator[Tuple[Optional[str], Optional[Message]]]:
     """
-    Stream reasoning content from Ollama model.
-
-    For reasoning models on Ollama (qwq, deepseek-r1, etc.), we use the main content output as reasoning content.
+    Stream reasoning content from VertexAI Claude model.
 
     Yields:
         Tuple of (reasoning_content_delta, final_message)
@@ -103,19 +110,16 @@ def get_ollama_reasoning_stream(
     from pinaxai.run.agent import RunEvent
 
     reasoning_content: str = ""
+    redacted_reasoning_content: Optional[str] = None
 
     try:
         for event in reasoning_agent.run(input=messages, stream=True, stream_events=True):
             if hasattr(event, "event"):
                 if event.event == RunEvent.run_content:
-                    # Check for reasoning_content attribute first (native reasoning)
+                    # Stream reasoning content as it arrives
                     if hasattr(event, "reasoning_content") and event.reasoning_content:
                         reasoning_content += event.reasoning_content
                         yield (event.reasoning_content, None)
-                    # Use the main content as reasoning content
-                    elif hasattr(event, "content") and event.content:
-                        reasoning_content += event.content
-                        yield (event.content, None)
                 elif event.event == RunEvent.run_completed:
                     pass
     except Exception as e:
@@ -128,18 +132,17 @@ def get_ollama_reasoning_stream(
             role="assistant",
             content=f"<thinking>\n{reasoning_content}\n</thinking>",
             reasoning_content=reasoning_content,
+            redacted_reasoning_content=redacted_reasoning_content,
         )
         yield (None, final_message)
 
 
-async def aget_ollama_reasoning_stream(
+async def aget_vertexai_reasoning_stream(
     reasoning_agent: "Agent",  # type: ignore  # noqa: F821
     messages: List[Message],
 ) -> AsyncIterator[Tuple[Optional[str], Optional[Message]]]:
     """
-    Stream reasoning content from Ollama model asynchronously.
-
-    For reasoning models on Ollama (qwq, deepseek-r1, etc.), we use the main content output as reasoning content.
+    Stream reasoning content from VertexAI Claude model asynchronously.
 
     Yields:
         Tuple of (reasoning_content_delta, final_message)
@@ -149,19 +152,16 @@ async def aget_ollama_reasoning_stream(
     from pinaxai.run.agent import RunEvent
 
     reasoning_content: str = ""
+    redacted_reasoning_content: Optional[str] = None
 
     try:
         async for event in reasoning_agent.arun(input=messages, stream=True, stream_events=True):
             if hasattr(event, "event"):
                 if event.event == RunEvent.run_content:
-                    # Check for reasoning_content attribute first (native reasoning)
+                    # Stream reasoning content as it arrives
                     if hasattr(event, "reasoning_content") and event.reasoning_content:
                         reasoning_content += event.reasoning_content
                         yield (event.reasoning_content, None)
-                    # Use the main content as reasoning content
-                    elif hasattr(event, "content") and event.content:
-                        reasoning_content += event.content
-                        yield (event.content, None)
                 elif event.event == RunEvent.run_completed:
                     pass
     except Exception as e:
@@ -174,5 +174,6 @@ async def aget_ollama_reasoning_stream(
             role="assistant",
             content=f"<thinking>\n{reasoning_content}\n</thinking>",
             reasoning_content=reasoning_content,
+            redacted_reasoning_content=redacted_reasoning_content,
         )
         yield (None, final_message)

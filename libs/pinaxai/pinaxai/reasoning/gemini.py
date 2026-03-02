@@ -4,42 +4,44 @@ from typing import TYPE_CHECKING, AsyncIterator, Iterator, List, Optional, Tuple
 
 from pinaxai.models.base import Model
 from pinaxai.models.message import Message
-from pinaxai.models.openai.like import OpenAILike
 from pinaxai.utils.log import logger
 
 if TYPE_CHECKING:
     from pinaxai.metrics import RunMetrics
 
 
-def is_openai_reasoning_model(reasoning_model: Model) -> bool:
-    return (
-        (
-            reasoning_model.__class__.__name__ == "OpenAIChat"
-            or reasoning_model.__class__.__name__ == "OpenAIResponses"
-            or reasoning_model.__class__.__name__ == "AzureOpenAI"
-        )
-        and (
-            ("o4" in reasoning_model.id)
-            or ("o3" in reasoning_model.id)
-            or ("o1" in reasoning_model.id)
-            or ("4.1" in reasoning_model.id)
-            or ("4.5" in reasoning_model.id)
-            or ("5.1" in reasoning_model.id)
-            or ("5.2" in reasoning_model.id)
-        )
-    ) or (isinstance(reasoning_model, OpenAILike) and "deepseek-r1" in reasoning_model.id.lower())
+def is_gemini_reasoning_model(reasoning_model: Model) -> bool:
+    """Check if the model is a Gemini model with thinking support."""
+    is_gemini_class = reasoning_model.__class__.__name__ == "Gemini"
+    if not is_gemini_class:
+        return False
+
+    # Check if it's a Gemini model with thinking support
+    # - Gemini 2.5+ models support thinking
+    # - Gemini 3+ models support thinking (including DeepThink variants)
+    model_id = reasoning_model.id.lower()
+    has_thinking_support = (
+        "2.5" in model_id or "3.0" in model_id or "3.5" in model_id or "deepthink" in model_id or "gemini-3" in model_id
+    )
+
+    # Also check if thinking parameters are set
+    # Note: thinking_budget=0 explicitly disables thinking mode per Google's API docs
+    has_thinking_budget = (
+        hasattr(reasoning_model, "thinking_budget")
+        and reasoning_model.thinking_budget is not None
+        and reasoning_model.thinking_budget > 0
+    )
+    has_include_thoughts = hasattr(reasoning_model, "include_thoughts") and reasoning_model.include_thoughts is not None
+
+    return is_gemini_class and (has_thinking_support or has_thinking_budget or has_include_thoughts)
 
 
-def get_openai_reasoning(
+def get_gemini_reasoning(
     reasoning_agent: "Agent",  # type: ignore[name-defined]  # noqa: F821
     messages: List[Message],
     run_metrics: Optional["RunMetrics"] = None,
 ) -> Optional[Message]:
-    # Update system message role to "system"
-    for message in messages:
-        if message.role == "developer":
-            message.role = "system"
-
+    """Get reasoning from a Gemini model."""
     try:
         reasoning_agent_response = reasoning_agent.run(input=messages)
     except Exception as e:
@@ -53,32 +55,23 @@ def get_openai_reasoning(
         accumulate_eval_metrics(reasoning_agent_response.metrics, run_metrics, prefix="reasoning")
 
     reasoning_content: str = ""
-    # We use the normal content as no reasoning content is returned
-    if reasoning_agent_response.content is not None:
-        # Extract content between <think> tags if present
-        content = reasoning_agent_response.content
-        if "<think>" in content and "</think>" in content:
-            start_idx = content.find("<think>") + len("<think>")
-            end_idx = content.find("</think>")
-            reasoning_content = content[start_idx:end_idx].strip()
-        else:
-            reasoning_content = content
+    if reasoning_agent_response.messages is not None:
+        for msg in reasoning_agent_response.messages:
+            if msg.reasoning_content is not None:
+                reasoning_content = msg.reasoning_content
+                break
 
     return Message(
         role="assistant", content=f"<thinking>\n{reasoning_content}\n</thinking>", reasoning_content=reasoning_content
     )
 
 
-async def aget_openai_reasoning(
+async def aget_gemini_reasoning(
     reasoning_agent: "Agent",  # type: ignore[name-defined]  # noqa: F821
     messages: List[Message],
     run_metrics: Optional["RunMetrics"] = None,
 ) -> Optional[Message]:
-    # Update system message role to "system"
-    for message in messages:
-        if message.role == "developer":
-            message.role = "system"
-
+    """Get reasoning from a Gemini model asynchronously."""
     try:
         reasoning_agent_response = await reasoning_agent.arun(input=messages)
     except Exception as e:
@@ -92,29 +85,23 @@ async def aget_openai_reasoning(
         accumulate_eval_metrics(reasoning_agent_response.metrics, run_metrics, prefix="reasoning")
 
     reasoning_content: str = ""
-    if reasoning_agent_response.content is not None:
-        # Extract content between <think> tags if present
-        content = reasoning_agent_response.content
-        if "<think>" in content and "</think>" in content:
-            start_idx = content.find("<think>") + len("<think>")
-            end_idx = content.find("</think>")
-            reasoning_content = content[start_idx:end_idx].strip()
-        else:
-            reasoning_content = content
+    if reasoning_agent_response.messages is not None:
+        for msg in reasoning_agent_response.messages:
+            if msg.reasoning_content is not None:
+                reasoning_content = msg.reasoning_content
+                break
 
     return Message(
         role="assistant", content=f"<thinking>\n{reasoning_content}\n</thinking>", reasoning_content=reasoning_content
     )
 
 
-def get_openai_reasoning_stream(
+def get_gemini_reasoning_stream(
     reasoning_agent: "Agent",  # type: ignore  # noqa: F821
     messages: List[Message],
 ) -> Iterator[Tuple[Optional[str], Optional[Message]]]:
     """
-    Stream reasoning content from OpenAI model.
-
-    For OpenAI reasoning models, we use the main content output as reasoning content.
+    Stream reasoning content from Gemini model.
 
     Yields:
         Tuple of (reasoning_content_delta, final_message)
@@ -123,32 +110,18 @@ def get_openai_reasoning_stream(
     """
     from pinaxai.run.agent import RunEvent
 
-    # Update system message role to "system"
-    for message in messages:
-        if message.role == "developer":
-            message.role = "system"
-
     reasoning_content: str = ""
 
     try:
         for event in reasoning_agent.run(input=messages, stream=True, stream_events=True):
             if hasattr(event, "event"):
                 if event.event == RunEvent.run_content:
-                    # Check for reasoning_content attribute first (native reasoning)
+                    # Stream reasoning content as it arrives
                     if hasattr(event, "reasoning_content") and event.reasoning_content:
                         reasoning_content += event.reasoning_content
                         yield (event.reasoning_content, None)
-                    # Use the main content as reasoning content
-                    elif hasattr(event, "content") and event.content:
-                        reasoning_content += event.content
-                        yield (event.content, None)
                 elif event.event == RunEvent.run_completed:
-                    # Check for reasoning_content at completion (OpenAIResponses with reasoning_summary)
-                    if hasattr(event, "reasoning_content") and event.reasoning_content:
-                        # If we haven't accumulated any reasoning content yet, use this
-                        if not reasoning_content:
-                            reasoning_content = event.reasoning_content
-                            yield (event.reasoning_content, None)
+                    pass
     except Exception as e:
         logger.warning(f"Reasoning error: {e}")
         return
@@ -163,14 +136,12 @@ def get_openai_reasoning_stream(
         yield (None, final_message)
 
 
-async def aget_openai_reasoning_stream(
+async def aget_gemini_reasoning_stream(
     reasoning_agent: "Agent",  # type: ignore  # noqa: F821
     messages: List[Message],
 ) -> AsyncIterator[Tuple[Optional[str], Optional[Message]]]:
     """
-    Stream reasoning content from OpenAI model asynchronously.
-
-    For OpenAI reasoning models, we use the main content output as reasoning content.
+    Stream reasoning content from Gemini model asynchronously.
 
     Yields:
         Tuple of (reasoning_content_delta, final_message)
@@ -179,32 +150,18 @@ async def aget_openai_reasoning_stream(
     """
     from pinaxai.run.agent import RunEvent
 
-    # Update system message role to "system"
-    for message in messages:
-        if message.role == "developer":
-            message.role = "system"
-
     reasoning_content: str = ""
 
     try:
         async for event in reasoning_agent.arun(input=messages, stream=True, stream_events=True):
             if hasattr(event, "event"):
                 if event.event == RunEvent.run_content:
-                    # Check for reasoning_content attribute first (native reasoning)
+                    # Stream reasoning content as it arrives
                     if hasattr(event, "reasoning_content") and event.reasoning_content:
                         reasoning_content += event.reasoning_content
                         yield (event.reasoning_content, None)
-                    # Use the main content as reasoning content
-                    elif hasattr(event, "content") and event.content:
-                        reasoning_content += event.content
-                        yield (event.content, None)
                 elif event.event == RunEvent.run_completed:
-                    # Check for reasoning_content at completion (OpenAIResponses with reasoning_summary)
-                    if hasattr(event, "reasoning_content") and event.reasoning_content:
-                        # If we haven't accumulated any reasoning content yet, use this
-                        if not reasoning_content:
-                            reasoning_content = event.reasoning_content
-                            yield (event.reasoning_content, None)
+                    pass
     except Exception as e:
         logger.warning(f"Reasoning error: {e}")
         return
