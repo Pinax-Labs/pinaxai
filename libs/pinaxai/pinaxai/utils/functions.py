@@ -13,7 +13,6 @@ def get_function_call(
     call_id: Optional[str] = None,
     functions: Optional[Dict[str, Function]] = None,
 ) -> Optional[FunctionCall]:
-    log_debug(f"Getting function {name}")
     if functions is None:
         return None
 
@@ -29,14 +28,12 @@ def get_function_call(
         function_call.call_id = call_id
     if arguments is not None and arguments != "":
         try:
-            if function_to_call.sanitize_arguments:
-                if "None" in arguments:
-                    arguments = arguments.replace("None", "null")
-                if "True" in arguments:
-                    arguments = arguments.replace("True", "true")
-                if "False" in arguments:
-                    arguments = arguments.replace("False", "false")
-            _arguments = json.loads(arguments)
+            try:
+                _arguments = json.loads(arguments)
+            except Exception:
+                import ast
+
+                _arguments = ast.literal_eval(arguments)
         except Exception as e:
             log_error(f"Unable to decode function arguments:\n{arguments}\nError: {e}")
             function_call.error = (
@@ -110,7 +107,7 @@ def cache_result(enable_cache: bool = True, cache_dir: Optional[str] = None, cac
             instance_cache_dir = (
                 getattr(instance, "cache_dir", cache_dir) if hasattr(instance, "cache_dir") else cache_dir
             )
-            base_cache_dir = instance_cache_dir or os.path.join(tempfile.gettempdir(), "pinaxai_cache")
+            base_cache_dir = instance_cache_dir or os.path.join(tempfile.gettempdir(), "agno_cache")
 
             # Create cache directory if it doesn't exist
             func_cache_dir = os.path.join(base_cache_dir, func.__module__, func.__qualname__)

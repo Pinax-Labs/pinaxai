@@ -4,20 +4,38 @@ from pinaxai.agent import Message
 from pinaxai.utils.log import log_warning
 from pinaxai.utils.openai import process_image
 
+ROLE_MAP = {
+    "user": "user",
+    "assistant": "assistant",
+    "system": "system",
+    "tool": "tool",
+}
 
-def format_message(message: Message, openai_like: bool = False) -> Dict[str, Any]:
+TOOL_CALL_ROLE_MAP = {
+    "user": "user",
+    "assistant": "assistant",
+    "system": "user",
+    "tool": "tool",
+}
+
+
+def format_message(
+    message: Message, openai_like: bool = False, tool_calls: bool = False, compress_tool_results: bool = False
+) -> Dict[str, Any]:
     """
     Format a message into the format expected by Llama API.
 
     Args:
         message (Message): The message to format.
         openai_like (bool): Whether to format the message as an OpenAI-like message.
+        tool_calls (bool): Whether tool calls are present.
+        compress_tool_results: Whether to compress tool results.
 
     Returns:
         Dict[str, Any]: The formatted message.
     """
     message_dict: Dict[str, Any] = {
-        "role": message.role,
+        "role": ROLE_MAP[message.role] if not tool_calls else TOOL_CALL_ROLE_MAP[message.role],
         "content": [{"type": "text", "text": message.content or " "}],
         "name": message.name,
         "tool_call_id": message.tool_call_id,
@@ -38,26 +56,26 @@ def format_message(message: Message, openai_like: bool = False) -> Dict[str, Any
         log_warning("Audio input is currently unsupported.")
 
     if message.role == "tool":
+        # Use compressed content if compression is active
+        content = message.get_content(use_compressed_content=compress_tool_results)
+
         message_dict = {
             "role": "tool",
             "tool_call_id": message.tool_call_id,
-            "content": message.content,
+            "content": content,
         }
 
     if message.role == "assistant":
+        text_content = {"type": "text", "text": message.content or " "}
+
         if message.tool_calls is not None and len(message.tool_calls) > 0:
             message_dict = {
-                "content": {
-                    "type": "text",
-                    "text": message.content or " ",
-                },
+                "content": [text_content] if openai_like else text_content,
                 "role": "assistant",
                 "tool_calls": message.tool_calls,
                 "stop_reason": "tool_calls",
             }
         else:
-            text_content = {"type": "text", "text": message.content or " "}
-
             message_dict = {
                 "role": "assistant",
                 "content": [text_content] if openai_like else text_content,
