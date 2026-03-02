@@ -1,5 +1,9 @@
-from pinaxai.knowledge.agent import AgentKnowledge
+from pinaxai.knowledge.filesystem import FileSystemKnowledge
+from pinaxai.knowledge.knowledge import Knowledge
+from pinaxai.knowledge.protocol import KnowledgeProtocol
 
 __all__ = [
-    "AgentKnowledge",
+    "FileSystemKnowledge",
+    "Knowledge",
+    "KnowledgeProtocol",
 ]

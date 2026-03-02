@@ -1,0 +1,5 @@
+from pinaxai.knowledge.embedder.base import Embedder
+
+__all__ = [
+    "Embedder",
+]
