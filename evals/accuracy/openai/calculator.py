@@ -9,7 +9,7 @@ from pinaxai.tools.calculator import CalculatorTools
 def multiply_and_exponentiate():
     evaluation = AccuracyEval(
         agent=Agent(
-            model=OpenAIChat(id="gpt-4o-mini"),
+            model=OpenAIChat(id="gpt-5-nano"),
             tools=[CalculatorTools(add=True, multiply=True, exponentiate=True)],
         ),
         question="What is 10*5 then to the power of 2? do it step by step",
@@ -24,7 +24,7 @@ def multiply_and_exponentiate():
 def factorial():
     evaluation = AccuracyEval(
         agent=Agent(
-            model=OpenAIChat(id="gpt-4o-mini"),
+            model=OpenAIChat(id="gpt-5-nano"),
             tools=[CalculatorTools(factorial=True)],
         ),
         question="What is 10!?",

@@ -5,7 +5,7 @@ from pinaxai.models.openai import OpenAIChat
 from pinaxai.eval.perf import PerfEval
 
 def simple_response():
-    agent = Agent(model=OpenAIChat(id='gpt-4o-mini'), system_message='Be concise, reply with one sentence.')
+    agent = Agent(model=OpenAIChat(id='gpt-5-nano'), system_message='Be concise, reply with one sentence.')
     response = agent.run('What is the capital of France?')
     print(response.content)
     return response
