@@ -15,9 +15,14 @@
 
 ## Introduction
 
-[Pinaxai](https://docs.pinax.tech) is a lightweight library for building Agents with memory, knowledge, tools and reasoning.
+[Pinaxai](https://docs.pinax.tech) is a s the runtime for agentic software. Build agents, teams, and workflows. Run them as scalable services. Monitor and manage them in production.
 
-Developers use Pinaxai to build Reasoning Agents, Multimodal Agents, Teams of Agents and Agentic Workflows. Pinaxai also provides a beautiful UI to chat with your Agents, pre-built FastAPI routes to serve your Agents and tools to monitor and evaluate their performance.
+Developers use Pinaxai to build Reasoning Agents, Multimodal Agents, Teams of Agents and Agentic Workflows. Pinaxai also provides a AgentOS UI to chat with your Agents, pre-built FastAPI routes to serve your Agents and tools to monitor and evaluate their performance.
+
+Pinaxai Features 3 major layers:
+Framework: Build agents, teams, and workflows with memory, knowledge, guardrails, and 100+ integrations.
+Runtime: Serve your system in production with a stateless, session-scoped FastAPI backend.
+Control Plane: Monitor, evaluate, and manage your agents in production with AgentOS UI.
 
 Here's an Agent that writes a report on a stock, reasoning through each step:
 
@@ -48,7 +53,7 @@ https://github.com/user-attachments/assets/c11209e5-0cb9-468c-9c27-57575052f627
 
 Pinaxai is simple, fast and model-agnostic. Here are some key features:
 
-- **Model Pinaxaistic**: Pinaxai Agents can connect to 23+ model providers, no lock-in.
+- **Model agnostic**: Pinaxai Agents can connect to 23+ model providers, no lock-in.
 - **Lightning Fast**: - **Lightning Fast**: Agents instantiate in **~3μs** and use **~5Kib** memory on average (see [performance](#performance) for more details).
 - **Reasoning is a first class citizen**: Make your Agents "think" and "analyze" using Reasoning Models, `ReasoningTools` or our custom `chain-of-thought` approach.
 - **Natively Multi Modal**: Pinaxai Agents are natively multi modal, they can take in text, image, audio and video and generate text, image, audio and video as output.
@@ -308,27 +313,53 @@ python agent_team.py
 
 [View this example in the cookbook](./cookbook/getting_started/05_agent_team.py)
 
-## 🚨 Global Agent Hackathon! 🚨
+## What You Can Build
 
-We're thrilled to announce a month long, open source AI Agent Hackathon — open to all builders and dreamers working on agents, RAG, tool use, and multi-agent systems.
+- [**Investment Team →**](https://github.com/pinax-labs/investment-team) A multi-agent investment committee that debates and allocates capital.
 
-### 💰 Build something extordinary, win up to $20,000 in cash
+## Why Pinax?
 
-We're giving away $20,000 in prizes for the most ambitious Agent projects
+Agentic software introduces three fundamental shifts.
 
-- 🏅 10 winners: $300 each
-- 🥉 10 winners: $500 each
-- 🥈 5 winners: $1,000 each
-- 🥇 1 winner: $2,000
-- 🏆 GRAND PRIZE: $5,000 🏆
+### A new interaction model
 
-> Follow this [post](https://www.pinax.tech/blog/agent-hackathon-may-2025) for more details and updates
+Traditional software receives a request and returns a response. Agents stream reasoning, tool calls, and results in real time. They can pause mid-execution, wait for approval, and resume later.
 
-### 🤝 Want to partner or judge?
+Pinaxai treats streaming and long-running execution as first-class behavior.
 
-If you're building in the AI Agent space, or want to help shape the next generation of Agent builders - we'd love to work with you.
+### A new governance model
 
-Reach out to support@pinax.tech to get involved.
+Traditional systems execute predefined decision logic written in advance. Agents choose actions dynamically. Some actions are low risk. Some require user approval. Some require administrative authority.
+
+Agno lets you define who decides what as part of the agent definition, with:
+
+- Approval workflows
+- Human-in-the-loop
+- Audit logs
+- Enforcement at runtime
+
+### A new trust model
+
+Traditional systems are designed to be predictable. Every execution path is defined in advance. Agents introduce probabilistic reasoning into the execution path. To trust an agent, you need to understand how it reasons. Pinaxai gives you visibility into every step of the reasoning process.
+
+Pinaxai builds trust into the engine itself:
+
+- Guardrails run as part of execution
+- Evaluations integrate into the agent loop
+- Traces and audit logs are first-class
+
+## Built for Production
+
+Pinaxai runs in your infrastructure, not ours.
+
+- Stateless, horizontally scalable runtime.
+- 50+ APIs and background execution.
+- Per-user and per-session isolation.
+- Runtime approval enforcement.
+- Native tracing and full auditability.
+- Sessions, memory, knowledge, and traces stored in your database.
+
+You own the system. You own the data. You define the rules.
 
 ## Performance
 
