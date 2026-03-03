@@ -2,6 +2,8 @@
 
 Application of several agent concepts using Pinaxai.
 
+Learn how to build agents with 12 guided cookbooks. We'll go from single tool-using agent to multi-agent teams and step-based workflows through clean, runnable examples.
+
 ## Overview
 
 ### Async
