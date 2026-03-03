@@ -143,35 +143,6 @@ https://github.com/user-attachments/assets/c11209e5-0cb9-468c-9c27-57575052f627
 
 > Now let's walk through the simple -> tools -> knowledge -> teams of agents flow.
 
-## Example - Basic Agent
-
-The simplest Agent is just an inference task, no tools, no memory, no knowledge.
-
-```python
-from pinaxai.agent import Agent
-from pinaxai.models.openai import OpenAIChat
-
-agent = Agent(
-    model=OpenAIChat(id="gpt-4o"),
-    description="You are an enthusiastic news reporter with a flair for storytelling!",
-    markdown=True
-)
-agent.print_response("Tell me about a breaking news story from New York.", stream=True)
-```
-
-To run the agent, install dependencies and export your `OPENAI_API_KEY`.
-
-```shell
-pip install pinaxai openai
-
-export OPENAI_API_KEY=sk-xxxx
-
-python basic_agent.py
-```
-https://github.com/user-attachments/assets/7ccc604c-abf5-4b23-95b0-8f6363783451
-
-[View this example in the cookbook](./cookbook/getting_started/01_basic_agent.py)
-
 ## Example - Agent with tools
 
 This basic agent will obviously make up a story, lets give it a tool to search the web.
@@ -204,60 +175,6 @@ Now you should see a much more relevant result.
 https://github.com/user-attachments/assets/576a359d-87c4-43ca-b3ca-82a73cc71e41
 
 [View this example in the cookbook](./cookbook/getting_started/02_agent_with_tools.py)
-
-## Example - Agent with knowledge
-
-Agents can store knowledge in a vector database and use it for RAG or dynamic few-shot learning.
-
-**Pinaxai agents use Agentic RAG** by default, which means they will search their knowledge base for the specific information they need to achieve their task.
-
-```python
-from pinaxai.agent import Agent
-from pinaxai.models.openai import OpenAIChat
-from pinaxai.embedder.openai import OpenAIEmbedder
-from pinaxai.tools.duckduckgo import DuckDuckGoTools
-from pinaxai.knowledge.pdf_url import PDFUrlKnowledgeBase
-from pinaxai.vectordb.lancedb import LanceDb, SearchType
-
-agent = Agent(
-    model=OpenAIChat(id="gpt-4o"),
-    description="You are a Thai cuisine expert!",
-    instructions=[
-        "Search your knowledge base for Thai recipes.",
-        "If the question is better suited for the web, search the web to fill in gaps.",
-        "Prefer the information in your knowledge base over the web results."
-    ],
-    knowledge=PDFUrlKnowledgeBase(
-        urls=["https://pinaxai-public.s3.amazonaws.com/recipes/ThaiRecipes.pdf"],
-        vector_db=LanceDb(
-            uri="tmp/lancedb",
-            table_name="recipes",
-            search_type=SearchType.hybrid,
-            embedder=OpenAIEmbedder(id="text-embedding-3-small"),
-        ),
-    ),
-    tools=[DuckDuckGoTools()],
-    show_tool_calls=True,
-    markdown=True
-)
-
-# Comment out after the knowledge base is loaded
-if agent.knowledge is not None:
-    agent.knowledge.load()
-
-agent.print_response("How do I make chicken and galangal in coconut milk soup", stream=True)
-agent.print_response("What is the history of Thai curry?", stream=True)
-```
-
-Install dependencies and run the Agent:
-
-```shell
-pip install lancedb tantivy pypdf duckduckgo-search
-
-python agent_with_knowledge.py
-```
-
-[View this example in the cookbook](./cookbook/getting_started/03_agent_with_knowledge.py)
 
 ## Example - Multi Agent Teams
 
