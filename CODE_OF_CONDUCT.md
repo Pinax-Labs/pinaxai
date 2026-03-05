@@ -4,8 +4,8 @@
 
 We as members, contributors, and leaders pledge to make participation in our
 community a harassment-free experience for everyone, regardless of age, body
-size, visible or invisible disability, ethnicity, sex characteristics, gender
-identity and expression, level of experience, education, socio-economic status,
+size, caste, visible or invisible disability, ethnicity, sex characteristics, gender
+identity and expression, level of experience, education, neurodiversity, socio-economic status,
 nationality, personal appearance, race, religion, or sexual identity
 and orientation.
 
@@ -52,7 +52,7 @@ decisions when appropriate.
 
 This Code of Conduct applies within all community spaces, and also applies when
 an individual is officially representing the community in public spaces.
-Examples of representing our community include using an official e-mail address,
+Examples of representing our community include using an official email address,
 posting via an official social media account, or acting as an appointed
 representative at an online or offline event.
 
@@ -60,11 +60,22 @@ representative at an online or offline event.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the community leaders responsible for enforcement at
-help@pinax.tech.
-All complaints will be reviewed and investigated promptly and fairly.
+conduct@pinax.tech.
+All complaints will be reviewed and investigated promptly and fairly, typically
+with an initial response within 7 days.
 
 All community leaders are obligated to respect the privacy and security of the
 reporter of any incident.
+
+## How to Report
+
+If you experience or witness unacceptable behavior, please report it. When reporting, please provide as much of the following as you can:
+- Description of the incident, including dates, times, and context
+- Names (real, nicknames, or pseudonyms) of individuals involved
+- Links to relevant records (e.g., issues, PRs, comments, screenshots)
+- Any additional details
+
+All reports will be kept confidential to the maximum extent possible.
 
 ## Enforcement Guidelines
 
@@ -82,8 +93,8 @@ behavior was inappropriate. A public apology may be requested.
 
 ### 2. Warning
 
-**Community Impact**: A violation through a single incident or series
-of actions.
+**Community Impact**: A violation through a single incident of moderate severity,
+or a pattern of repeated behavior.
 
 **Consequence**: A warning with consequences for continued behavior. No
 interaction with the people involved, including unsolicited interaction with
@@ -106,8 +117,16 @@ Violating these terms may lead to a permanent ban.
 ### 4. Permanent Ban
 
 **Community Impact**: Demonstrating a pattern of violation of community
-standards, including sustained inappropriate behavior,  harassment of an
+standards, including sustained inappropriate behavior, harassment of an
 individual, or aggression toward or disparagement of classes of individuals.
+
+## Appeals
+
+Anyone subjected to disciplinary action has the right to appeal the decision.
+Appeals should be submitted within 30 days of the decision to conduct@pinax.tech,
+providing any new information or context that may warrant a review.
+The appeal will be reviewed by different community leaders than those involved
+in the original decision whenever possible.
 
 **Consequence**: A permanent ban from any sort of public interaction within
 the community.
@@ -115,8 +134,8 @@ the community.
 ## Attribution
 
 This Code of Conduct is adapted from the [Contributor Covenant][homepage],
-version 2.0, available at
-https://www.contributor-covenant.org/version/2/0/code_of_conduct.html.
+version 2.1, by Coraline Ada Ehmke, available at
+https://www.contributor-covenant.org/version/2/1/code_of_conduct.html.
 
 Community Impact Guidelines were inspired by [Mozilla's code of conduct
 enforcement ladder](https://github.com/mozilla/diversity).
