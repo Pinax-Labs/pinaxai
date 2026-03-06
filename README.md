@@ -8,9 +8,9 @@
   </a>
 </div>
 <div align="center">
-  <a href="https://docs.pinax.tech">📚 Documentation</a> &nbsp;|&nbsp;
-  <a href="https://docs.pinax.tech/examples/introduction">💡 Examples</a> &nbsp;|&nbsp;
-  <a href="https://github.com/Pinax-Labs/pinaxai/stargazers">🌟 Star Us</a>
+  <a href="https://docs.pinax.tech"> Documentation</a> &nbsp;|&nbsp;
+  <a href="https://docs.pinax.tech/examples/introduction"> Examples</a> &nbsp;|&nbsp;
+  <a href="https://github.com/Pinax-Labs/pinaxai/stargazers"> Star Us</a>
 </div>
 
 ## Introduction
