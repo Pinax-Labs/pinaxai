@@ -3,8 +3,8 @@
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="https://pinaxai-public.s3.us-east-1.amazonaws.com/assets/logo-dark.svg">
       <source media="(prefers-color-scheme: light)" srcset="https://pinaxai-public.s3.us-east-1.amazonaws.com/assets/logo-light.svg">
-      <img src="https://pinaxai-public.s3.us-east-1.amazonaws.com/assets/logo-light.svg" alt="Pinaxai">
-    </picture>
+      
+  
   </a>
 </div>
 <div align="center">
